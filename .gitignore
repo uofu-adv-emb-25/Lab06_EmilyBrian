@@ -1,0 +1,8 @@
+*.log.*
+*-asciinema
+*.pid
+*-profile
+
+.vscode/
+**/build/
+.DS_Store
