@@ -6,6 +6,7 @@
 #include <pico/multicore.h>
 #include <pico/cyw43_arch.h>
 #include "func.h"
+#include <pico/time.h>
 
 SemaphoreHandle_t semaphore;
 
@@ -16,7 +17,7 @@ void side_thread(void *params)
 {
 	while (1) {
         vTaskDelay(100);
-        increment_counter(semaphore, &counter);
+        //increment_counter(semaphore, &counter);
         printf("hello world from %s! Count %d\n", "thread", counter);
 	}
 }
@@ -26,7 +27,7 @@ void main_thread(void *params)
 	while (1) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
         vTaskDelay(100);
-        increment_counter(semaphore, &counter);
+        //increment_counter(semaphore, &counter);
 		printf("hello world from %s! Count %d\n", "main", counter);
         on = !on;
 	}

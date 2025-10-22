@@ -15,5 +15,6 @@ typedef struct threadArgs {
     SemaphoreHandle_t semaphore;
 } threadArgs;
 
-void side_thread(void *params);
-void main_thread(void *params);=
+void side_thread_low(void *params);
+void side_thread_high(void *params);
+void side_thread_medium(void *params);

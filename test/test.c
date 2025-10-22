@@ -5,6 +5,9 @@
 #include <unity.h>
 #include "unity_config.h"
 #include "func.h"
+#include <FreeRTOS.h>
+#include "task.h"
+#include <pico/time.h>
 
 void setUp(void) 
 {        
@@ -33,15 +36,36 @@ void test_multiplication(void)
 void test_priority_inversion(void)
 {
     TaskHandle_t main, side_low, side_medium, side_high;
-    semaphore = xSemaphoreCreateBinary();
+    SemaphoreHandle_t semaphore = xSemaphoreCreateBinary();
     threadArgs arg = {semaphore};
 
-    xTaskCreate(side_thread_semaphore, "SideThread",
+    TickType_t start_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE start_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    xTaskCreate(side_thread_low, "Thread1",
                 SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY, &side_low);
-    xTaskCreate(side_thread_medium, "SideThread",
+    vTaskDelay(1000/portTICK_PERIOD_MS);
+    xTaskCreate(side_thread_medium, "Thread2",
                 SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+1, &side_medium);
-    xTaskCreate(side_thread_semaphore, "SideThread",
+    xTaskCreate(side_thread_high, "Thread3",
                 SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+2, &side_high);
+    
+    vTaskDelay(4000/portTICK_PERIOD_MS);
+    
+    TickType_t end_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE end_count = portGET_RUN_TIME_COUNTER_VALUE();
+    configRUN_TIME_COUNTER_TYPE low = ulTaskGetRunTimeCounter(side_low);
+    configRUN_TIME_COUNTER_TYPE medium = ulTaskGetRunTimeCounter(side_medium);
+    configRUN_TIME_COUNTER_TYPE high = ulTaskGetRunTimeCounter(side_high);
+    configRUN_TIME_COUNTER_TYPE elapsed = end_count - start_count;
+    TickType_t elapsed_ticks = end_ticks - start_ticks;
+
+    printf("low %lld medium %lld high %lld start %lld end %lld elapsed %lld (us) in %d to %d ticks\n",
+            low, medium, high, start_count, end_count, elapsed, start_ticks, end_ticks);
+
+    vTaskDelete(side_low);
+    vTaskDelete(side_medium);
+    vTaskDelete(side_high);
 }
 
 //Main test running thread
