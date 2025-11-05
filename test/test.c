@@ -4,7 +4,13 @@
 #include <stdint.h>
 #include <unity.h>
 #include "unity_config.h"
+
 #include "func.h"
+#include "busy.h"
+
+#include <FreeRTOS.h>
+#include "task.h"
+#include <pico/time.h>
 
 void setUp(void) 
 {        
@@ -16,121 +22,327 @@ void tearDown(void)
     printf("Finished test\n");
 }
 
-void test_variable_assignment()
+//ACTIVITY 0
+void test_priority_inversion(void)
 {
-    int x = 1;
-    TEST_ASSERT_TRUE_MESSAGE(x == 1,"Variable assignment failed.");
+    TaskHandle_t main, side_low, side_medium, side_high;
+    SemaphoreHandle_t semaphore = xSemaphoreCreateBinary();
+    threadArgs arg = {semaphore};
+
+    TickType_t start_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE start_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    xTaskCreate(side_thread_low, "Thread1",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY, &side_low);
+    vTaskDelay(1000/portTICK_PERIOD_MS);
+    xTaskCreate(side_thread_medium, "Thread2",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+1, &side_medium);
+    xTaskCreate(side_thread_high, "Thread3",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+2, &side_high);
+    
+    vTaskDelay(4000/portTICK_PERIOD_MS);
+    
+    TickType_t end_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE end_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    configRUN_TIME_COUNTER_TYPE low = ulTaskGetRunTimeCounter(side_low);
+    configRUN_TIME_COUNTER_TYPE medium = ulTaskGetRunTimeCounter(side_medium);
+    configRUN_TIME_COUNTER_TYPE high = ulTaskGetRunTimeCounter(side_high);
+
+    configRUN_TIME_COUNTER_TYPE sum = low + medium + high;
+
+    configRUN_TIME_COUNTER_TYPE low_percent = (low*100)/sum;
+    configRUN_TIME_COUNTER_TYPE medium_percent = (medium*100)/sum;
+    configRUN_TIME_COUNTER_TYPE high_percent = (high*100)/sum;
+
+    configRUN_TIME_COUNTER_TYPE elapsed = end_count - start_count;
+    TickType_t elapsed_ticks = end_ticks - start_ticks;
+
+    printf("low %lld medium %lld high %lld start %lld end %lld elapsed %lld (us) in %d to %d ticks\n",
+            low, medium, high, start_count, end_count, elapsed, start_ticks, end_ticks);
+
+    printf("low %lld medium %lld high %lld sum %lld\n",low_percent, medium_percent, high_percent,sum);
+
+    vTaskDelete(side_low);
+    vTaskDelete(side_medium);
+    vTaskDelete(side_high);
+
+    //TEST_ASSERT_UINT64_WITHIN(uint64_t(15),uint64_t(85),medium_percent);
+    TEST_ASSERT_TRUE_MESSAGE(medium_percent > 80, "Medium thread does not starve the processor enough\n");
+    TEST_ASSERT_TRUE_MESSAGE(low_percent < 15, "Low thread runs more than 15 percent of the time\n");
+    TEST_ASSERT_TRUE_MESSAGE(high_percent < 15, "High thread runs more than 15 percent of the time\n");
 }
 
-void test_multiplication(void)
+//ACTIVITY 1
+void test_priority_inversion_mutex(void)
 {
-    int x = 30;
-    int y = 6;
-    int z = x / y;
-    TEST_ASSERT_TRUE_MESSAGE(z == 5, "Multiplication of two integers returned incorrect value.");
+    TaskHandle_t main, side_low, side_medium, side_high;
+    SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+    threadArgs arg = {mutex};
+
+    TickType_t start_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE start_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    xTaskCreate(side_thread_low, "Thread1",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY, &side_low);
+    vTaskDelay(1000/portTICK_PERIOD_MS);
+    xTaskCreate(side_thread_medium, "Thread2",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+1, &side_medium);
+    xTaskCreate(side_thread_high, "Thread3",
+                SIDE_TASK_STACK_SIZE, (void *) &arg, SIDE_TASK_PRIORITY+2, &side_high);
+    
+    vTaskDelay(4000/portTICK_PERIOD_MS);
+    
+    TickType_t end_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE end_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    configRUN_TIME_COUNTER_TYPE low = ulTaskGetRunTimeCounter(side_low);
+    configRUN_TIME_COUNTER_TYPE medium = ulTaskGetRunTimeCounter(side_medium);
+    configRUN_TIME_COUNTER_TYPE high = ulTaskGetRunTimeCounter(side_high);
+
+    configRUN_TIME_COUNTER_TYPE sum = low + medium + high;
+
+    configRUN_TIME_COUNTER_TYPE low_percent = (low*100)/sum;
+    configRUN_TIME_COUNTER_TYPE medium_percent = (medium*100)/sum;
+    configRUN_TIME_COUNTER_TYPE high_percent = (high*100)/sum;
+
+    configRUN_TIME_COUNTER_TYPE elapsed = end_count - start_count;
+    TickType_t elapsed_ticks = end_ticks - start_ticks;
+
+    printf("low %lld medium %lld high %lld start %lld end %lld elapsed %lld (us) in %d to %d ticks\n",
+            low, medium, high, start_count, end_count, elapsed, start_ticks, end_ticks);
+
+    printf("low %lld medium %lld high %lld sum %lld\n",low_percent, medium_percent, high_percent,sum);
+
+    vTaskDelete(side_low);
+    vTaskDelete(side_medium);
+    vTaskDelete(side_high);
+
+    //Priority Inheritance should fix this
+    TEST_ASSERT_TRUE_MESSAGE(medium_percent < 10, "Medium thread runs more than 10 percent of the time\n");
+    TEST_ASSERT_TRUE_MESSAGE(low_percent < 10, "Low thread runs more than 10 percent of the time\n");
+    TEST_ASSERT_TRUE_MESSAGE(high_percent > 80, "High thread runs less than 80 percent of the time\n");
 }
 
-void test_increment_count(void)
+//ACTIVITY 2.1
+void runtime_analysis(TaskFunction_t task1Name,
+                    int task1Priority,
+                    configRUN_TIME_COUNTER_TYPE *task1runtime,
+
+                    TaskFunction_t task2Name,
+                    int task2Priority,
+                    configRUN_TIME_COUNTER_TYPE *task2runtime,
+
+                    configRUN_TIME_COUNTER_TYPE *total_runtime,
+                    TickType_t *total_ticks,
+                    configRUN_TIME_COUNTER_TYPE t1_t2_delay_ms
+)
 {
-    SemaphoreHandle_t semaphore = xSemaphoreCreateCounting(1,1);
-    int count = 0;
-    int result = increment_counter(semaphore, &count);
-    TEST_ASSERT_EQUAL_MESSAGE(result, pdTRUE, "Lock was not acquired");
-    TEST_ASSERT_EQUAL_MESSAGE(count, 1, "Count was not incremented");
+    TaskHandle_t thread1, thread2;
+    TickType_t start_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE start_count = portGET_RUN_TIME_COUNTER_VALUE();
+
+    xTaskCreate(task1Name, "Thread1",
+                SIDE_TASK_STACK_SIZE, NULL, task1Priority, &thread1);
+    vTaskDelay(t1_t2_delay_ms/portTICK_PERIOD_MS);
+    xTaskCreate(task2Name, "Thread2",
+                SIDE_TASK_STACK_SIZE, NULL, task2Priority, &thread2);
+    vTaskDelay(4000/portTICK_PERIOD_MS);
+
+    TickType_t end_ticks = xTaskGetTickCount();
+    configRUN_TIME_COUNTER_TYPE end_count = portGET_RUN_TIME_COUNTER_VALUE();
+    
+    *task1runtime = ulTaskGetRunTimeCounter(thread1);
+    *task2runtime= ulTaskGetRunTimeCounter(thread2);
+
+    *total_runtime = end_count - start_count;
+    *total_ticks = end_ticks - start_ticks;
+
+    printf("task1 %lld task2 %lld start %lld end %lld elapsed %lld (us) in %d to %d ticks\n",
+            *task1runtime, *task2runtime, start_count, end_count, *total_runtime, start_ticks, end_ticks);
+    
+    vTaskDelete(thread1);
+    vTaskDelete(thread2);
 }
 
-void test_increment_count_fail(void)
-{
-    SemaphoreHandle_t semaphore = xSemaphoreCreateCounting(1,1);
-    int count = 0;
-    xSemaphoreTake(semaphore, portMAX_DELAY);
-    int result = increment_counter(semaphore, &count);
-    TEST_ASSERT_EQUAL_MESSAGE(result, pdFALSE, "Lock was acquired");
-    TEST_ASSERT_EQUAL_MESSAGE(count, 0, "Count was incremented");
+void busy_busy_same(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_busy,SIDE_TASK_PRIORITY,&thread1_time, //thread 1
+                     busy_busy,SIDE_TASK_PRIORITY,&thread2_time, //thread 2
+        &total_time, &total_ticks, 0
+    );
+
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
+
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
+
+
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent > 40, "Task1 less than 40 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent < 60, "Task1 greater than 60 percent\n");
+
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent > 40, "Task2 less than 40 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent < 60, "Task2 greater than 60 percent\n");
 }
 
+void yield_yield_same(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_yield,SIDE_TASK_PRIORITY,&thread1_time, //thread 1
+                     busy_yield,SIDE_TASK_PRIORITY,&thread2_time, //thread 2
+        &total_time, &total_ticks, 0
+    );
 
-void test_deadlock_case1(void)
-{
-    SemaphoreHandle_t semaphore_A = xSemaphoreCreateCounting(1,1);
-    SemaphoreHandle_t semaphore_B = xSemaphoreCreateCounting(1,1);
-    deadlockParams argsA = {semaphore_A,semaphore_B, 3};
-    deadlockParams argsB = {semaphore_A,semaphore_B, 0};
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
 
-    TaskHandle_t task_A, task_B;
-    // Create Task A that obtains lock A, pauses, then waits for lock B
-    xTaskCreate(taskA, "taskA",
-                SIDE_TASK_STACK_SIZE, (void *)&argsA, SIDE_TASK_PRIORITY, &task_A);
-                
-    // Create Task B that obtains lock B and waits for lock A
-    xTaskCreate(taskB, "taskB",
-                SIDE_TASK_STACK_SIZE, (void *)&argsB, SIDE_TASK_PRIORITY, &task_B);
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
 
-    // Allow tasks A and B to lock
-    vTaskDelay(1000);
 
-    TEST_ASSERT_EQUAL(argsA.counter, 4);
-    TEST_ASSERT_EQUAL(argsB.counter, 1);
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent > 40, "Task1 less than 40 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent < 60, "Task1 greater than 60 percent\n");
 
-    vTaskDelete(task_A);
-    vTaskDelete(task_B);
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent > 40, "Task2 less than 40 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent < 60, "Task2 greater than 60 percent\n");
 }
 
-void test_orphaned_lock(void)
-{
-    SemaphoreHandle_t semaphore = xSemaphoreCreateCounting(1,1);
+void busy_yield_same(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_busy,SIDE_TASK_PRIORITY,&thread1_time,  //thread 1
+                     busy_yield,SIDE_TASK_PRIORITY,&thread2_time, //thread 2
+        &total_time, &total_ticks, 0
+    );
 
-    orphanParams args = {semaphore, 0};
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
 
-    TaskHandle_t task_orphan;
-    xTaskCreate(orphaned_lock, "task_orphan",
-            SIDE_TASK_STACK_SIZE, (void *)&args, SIDE_TASK_PRIORITY, &task_orphan);
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
 
-    // Let thread take, give, then orphan lock
-    vTaskDelay(1000);
 
-    TEST_ASSERT_EQUAL(args.counter, 1);
-    TEST_ASSERT_EQUAL(0, uxSemaphoreGetCount(args.semaphore));
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent > 90, "Task1 less than 90 percent\n");
 
-    vTaskDelete(task_orphan);
-
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent < 10, "Task2 greater than 10 percent\n");
 }
 
-void test_orphaned_lock_fix(void)
-{
-    SemaphoreHandle_t semaphore = xSemaphoreCreateCounting(1,1);
+//ACTIVITY 2.2
+void busy_busy_highFirst(void)
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_busy,SIDE_TASK_PRIORITY+1,&thread1_time, //thread 1
+        busy_busy,SIDE_TASK_PRIORITY,&thread2_time,              //thread 2
+        &total_time, &total_ticks, 100
+    );
 
-    orphanParams args = {semaphore, 0};
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
 
-    TaskHandle_t task_orphan_fix;
-    xTaskCreate(orphaned_lock_fix, "task_orphan_fix",
-            SIDE_TASK_STACK_SIZE, (void *)&args, SIDE_TASK_PRIORITY, &task_orphan_fix);
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
 
-    vTaskDelay(1000);
 
-    TEST_ASSERT_TRUE(args.counter > 1000);
-    TEST_ASSERT_EQUAL(1, uxSemaphoreGetCount(args.semaphore));
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent > 90, "High Priority less than than 90 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent < 10, "Low Priority greater than 10 percent\n");
+}
 
-    vTaskDelete(task_orphan_fix);
+void busy_busy_lowFirst(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_busy,SIDE_TASK_PRIORITY,&thread1_time, //thread 1
+        busy_busy,SIDE_TASK_PRIORITY+1,&thread2_time,              //thread 2
+        &total_time, &total_ticks, 100
+    );
 
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
+
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
+
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent < 10, "Low Priority greater than 10 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent > 90, "High Priority less than 90 percent\n");
+}
+
+void busy_yield_highFirst(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_yield,SIDE_TASK_PRIORITY+1,&thread1_time, //thread 1
+        busy_yield,SIDE_TASK_PRIORITY,&thread2_time,              //thread 2
+        &total_time, &total_ticks, 100
+    );
+
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
+
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
+
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent > 90, "High Priority less than than 90 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent < 10, "Low Priority greater than 10 percent\n");
+}
+
+void busy_yield_lowFirst(void) 
+{    
+    uint64_t thread1_time = 0;
+    uint64_t thread2_time = 0;
+    uint64_t total_time = 0;
+    TickType_t total_ticks = 0;
+    runtime_analysis(busy_yield,SIDE_TASK_PRIORITY,&thread1_time, //thread 1
+        busy_yield,SIDE_TASK_PRIORITY+1,&thread2_time,              //thread 2
+        &total_time, &total_ticks,100
+    );
+
+    configRUN_TIME_COUNTER_TYPE sum = thread1_time + thread2_time;
+    configRUN_TIME_COUNTER_TYPE thread1_percent = (thread1_time*100)/sum;
+    configRUN_TIME_COUNTER_TYPE thread2_percent = (thread2_time*100)/sum;
+
+    printf("task1 %lld task2 %lld sum %lld\n", thread1_percent, thread2_percent, sum);
+
+    TEST_ASSERT_TRUE_MESSAGE(thread1_percent < 10, "Low Priority greater than 10 percent\n");
+    TEST_ASSERT_TRUE_MESSAGE(thread2_percent > 90, "High Priority less than 90 percent\n");
 }
 
 //Main test running thread
 void runTestThread(__unused void *args)
 {
+    sleep_ms(5000);
     while(1) 
     {
-        sleep_ms(10000);
         UNITY_BEGIN();
-        RUN_TEST(test_variable_assignment);
-        RUN_TEST(test_multiplication);
-        RUN_TEST(test_increment_count);
-        RUN_TEST(test_increment_count_fail);
-        RUN_TEST(test_deadlock_case1);
-        RUN_TEST(test_orphaned_lock);
-        RUN_TEST(test_orphaned_lock_fix);
+        RUN_TEST(test_priority_inversion);
+        RUN_TEST(test_priority_inversion_mutex);
+        RUN_TEST(busy_busy_same);
+        RUN_TEST(yield_yield_same);
+        RUN_TEST(busy_yield_same);
+        RUN_TEST(busy_busy_highFirst);
+        RUN_TEST(busy_busy_lowFirst);
+        RUN_TEST(busy_yield_highFirst);
+        RUN_TEST(busy_yield_lowFirst);
+
         UNITY_END();
-        sleep_ms(10000);
+        sleep_ms(1000);
     }
 }
 
@@ -139,7 +351,7 @@ int main (void)
     stdio_init_all();
     hard_assert(cyw43_arch_init() == PICO_OK);
     xTaskCreate(runTestThread,"RunningTests",
-                SIDE_TASK_STACK_SIZE,NULL,SIDE_TASK_PRIORITY+1,NULL);
+                SIDE_TASK_STACK_SIZE,NULL,SIDE_TASK_PRIORITY+4,NULL);
     vTaskStartScheduler();
     return 0;
 }

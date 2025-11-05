@@ -1,82 +1,44 @@
 #include "func.h"
 #include <stdio.h>
 
-
-int increment_counter(SemaphoreHandle_t counter_semaphore, int* counter_ptr)
+void side_thread_low(void *params)
 {
-    int result = xSemaphoreTake(counter_semaphore, (TickType_t) 10);
-    if (result == pdTRUE)
+    threadArgs *args = (threadArgs *) params;
+    if(xSemaphoreTake(args->semaphore,portMAX_DELAY))
     {
-        *counter_ptr += 1;
-        xSemaphoreGive(counter_semaphore);
-    }
-    
-    return result;
-}
-
-//Deadlocked Code
-void taskA(void *arg)
-{
-    deadlockParams *args = (deadlockParams *) arg;
-
-    // Acquire lock A  
-    args->counter += xSemaphoreTake(args->A, portMAX_DELAY);
-
-    // Delay to allow task B to acquire lock B
-    vTaskDelay(1000);
-
-    // Attempt to acquire lock B
-    args->counter += xSemaphoreTake(args->B, portMAX_DELAY);
-    
-    xSemaphoreGive(args->B);
-    xSemaphoreGive(args->A);
-
-    vTaskSuspend(NULL);
-}
-
-void taskB(void *arg) 
-{
-    deadlockParams *args = (deadlockParams *) arg;
-    // Acquire lock B
-    args->counter += xSemaphoreTake(args->B, portMAX_DELAY);
-
-    // Attempt to acquire lock A
-    args->counter += xSemaphoreTake(args->A, portMAX_DELAY);
-
-    xSemaphoreGive(args->A);
-    xSemaphoreGive(args->B);
-
-    vTaskSuspend(NULL);
-}
-
-void orphaned_lock(void *arg)
-{
-    orphanParams *args = (orphanParams *) arg;
-    while (1) {
-        xSemaphoreTake(args->semaphore, portMAX_DELAY);
-        args->counter++;
-        if (args->counter % 2) {
-            continue;
-        }
-        printf("Count %d\n", args->counter);
+        printf("Low priority thread obtained semaphore\n");
+        vTaskDelay(1000/portTICK_PERIOD_MS);
         xSemaphoreGive(args->semaphore);
+        printf("Low priority thread released semaphore\n");
+    } else
+    {
+        printf("Low prioirty thread never obtained semaphore\n");
     }
-}
+    while(1)
+    {}
+} 
 
-void orphaned_lock_fix(void *arg)
+void side_thread_high(void *params)
 {
-    orphanParams *args = (orphanParams *) arg;
-    while (1) {
-        xSemaphoreTake(args->semaphore, portMAX_DELAY);
-        args->counter++;
-        if (args->counter % 2) {
-            xSemaphoreGive(args->semaphore);
-            continue;
-        }
-        //printf("Count %d\n", args->counter);
+    threadArgs *args = (threadArgs *) params;
+    if(xSemaphoreTake(args->semaphore,portMAX_DELAY))
+    {
+        printf("High priority thread obtained semaphore\n");
         xSemaphoreGive(args->semaphore);
-
-        if (args->counter > 1000)
-            vTaskSuspend(NULL);
+        printf("High priority thread released semaphore\n");
+    } else
+    {
+        printf("High prioirty thread never obtained semaphore\n");
     }
-}
+    while(1)
+    {}
+} 
+
+void side_thread_medium(void *params)
+{
+    printf("Medium thread active\n");
+    while(1)
+    {
+        vTaskDelay(100/portTICK_PERIOD_MS);
+    }
+} 
